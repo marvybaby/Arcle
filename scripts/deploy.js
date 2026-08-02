@@ -1,7 +1,7 @@
 const hre = require("hardhat");
 
 async function main() {
-  console.log("Deploying OracleX contracts to Polkadot Hub...\n");
+  console.log("Deploying Arcle contracts to Arc testnet...\n");
 
   // 1. Deploy AIOracle
   console.log("Deploying AIOracle...");
