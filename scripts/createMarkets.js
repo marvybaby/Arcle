@@ -1,15 +1,15 @@
 const hre = require("hardhat");
 
 async function main() {
-  const FACTORY_ADDRESS = "0x936800b22e483A2ec3d112da9027bbFEc0Cf55d5";
-
+  const FACTORY_ADDRESS = process.env.MARKETFACTORY_ADDRESS;
+  if (!FACTORY_ADDRESS) {
+    throw new Error("Set MARKETFACTORY_ADDRESS in your .env first");
+  }
 
   const factory = await hre.ethers.getContractAt("MarketFactory", FACTORY_ADDRESS);
 
-  const gasSettings = {
-    maxPriorityFeePerGas: hre.ethers.parseUnits("1500", "gwei"),
-    maxFeePerGas: hre.ethers.parseUnits("2000", "gwei")
-  };
+  // No hardcoded gas settings -- let Hardhat/Arc estimate fees automatically,
+  // since Arc's gas fees are dynamic and can change rapidly.
 
   console.log("Creating markets...");
 
@@ -17,33 +17,32 @@ async function main() {
     "Will ETH price exceed $5,000 by end of March 2026?",
     ["Yes", "No"],
     Math.floor(Date.now() / 1000) + (14 * 24 * 60 * 60),
-    "crypto",
-    gasSettings
+    "crypto"
   );
-  await tx.wait();
-  console.log("Market 0 created!");
+  let receipt = await tx.wait();
+  console.log(`Market 0 created! tx: ${receipt.hash}`);
 
   tx = await factory.createMarket(
-    "Will DOT price exceed $20 before the hackathon ends?",
+    "Will Arc TVL exceed $50M by end of Q3 2026?",
     ["Yes", "No"],
     Math.floor(Date.now() / 1000) + (14 * 24 * 60 * 60),
-    "crypto",
-    gasSettings
+    "crypto"
   );
-  await tx.wait();
-  console.log("Market 1 created!");
+  receipt = await tx.wait();
+  console.log(`Market 1 created! tx: ${receipt.hash}`);
 
   tx = await factory.createMarket(
-    "Will a DeFi protocol on Polkadot Hub exceed $100M TVL in 2026?",
+    "Will a DeFi protocol on Arc exceed $100M TVL in 2026?",
     ["Yes", "No"],
     Math.floor(Date.now() / 1000) + (14 * 24 * 60 * 60),
-    "defi",
-    gasSettings
+    "defi"
   );
-  await tx.wait();
-  console.log("Market 2 created!");
+  receipt = await tx.wait();
+  console.log(`Market 2 created! tx: ${receipt.hash}`);
 
-  console.log("All markets created successfully!");
+  console.log("\nAll markets created successfully!");
+  console.log("Check MarketCreated events on ArcScan to get each marketId,");
+  console.log("or query factory.getMarketsByCategory(\"crypto\") / (\"defi\").");
 }
 
 main().catch(console.error);
