@@ -1,0 +1,12 @@
+{
+  "name": "Arcle AI Oracle Agent",
+  "description": "Autonomous agent that scores prediction markets and stakes/settles positions in USDC on Arc, without a human in the loop.",
+  "agent_type": "prediction_market_oracle",
+  "capabilities": [
+    "market_probability_scoring",
+    "autonomous_usdc_staking",
+    "autonomous_settlement",
+    "onchain_accuracy_tracking"
+  ],
+  "version": "1.0.0"
+}
