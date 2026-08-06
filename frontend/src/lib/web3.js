@@ -50,3 +50,23 @@ export function formatUSDC(weiValue) {
     maximumFractionDigits: 2,
   });
 }
+
+// Retries a function on RPC rate-limit errors with exponential backoff.
+// Arc's public RPC can reject bursts of simultaneous requests (common on
+// first page load, when multiple components query on-chain data at once).
+export async function withRetry(fn, { retries = 4, baseDelay = 700 } = {}) {
+  let lastErr;
+  for (let i = 0; i <= retries; i++) {
+    try {
+      return await fn();
+    } catch (e) {
+      lastErr = e;
+      const code = e?.info?.error?.code ?? e?.error?.code;
+      const msg = (e?.info?.error?.message || e?.error?.message || e?.message || "").toLowerCase();
+      const isRateLimit = code === -32005 || msg.includes("rate limit") || msg.includes("429");
+      if (!isRateLimit || i === retries) throw e;
+      await new Promise((r) => setTimeout(r, baseDelay * Math.pow(2, i)));
+    }
+  }
+  throw lastErr;
+}

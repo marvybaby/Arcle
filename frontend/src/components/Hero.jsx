@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Contract } from "ethers";
 import ConfidenceGauge from "./ConfidenceGauge";
-import { getReadProvider } from "../lib/web3";
+import { getReadProvider, withRetry } from "../lib/web3";
 import { AI_ORACLE_ADDRESS, AI_ORACLE_ABI } from "../lib/contracts";
 
 export default function Hero({ refreshTick }) {
@@ -13,7 +13,7 @@ export default function Hero({ refreshTick }) {
       try {
         const provider = getReadProvider();
         const aiOracle = new Contract(AI_ORACLE_ADDRESS, AI_ORACLE_ABI, provider);
-        const acc = await aiOracle.getAccuracyPercentage();
+        const acc = await withRetry(() => aiOracle.getAccuracyPercentage());
         if (!cancelled) setAccuracy(Number(acc));
       } catch {
         if (!cancelled) setAccuracy(0);

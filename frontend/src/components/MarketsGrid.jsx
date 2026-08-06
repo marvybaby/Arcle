@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Contract, formatUnits } from "ethers";
 import MarketCard from "./MarketCard";
-import { getReadProvider } from "../lib/web3";
+import { getReadProvider, withRetry } from "../lib/web3";
 import {
   PREDICTION_MARKET_ADDRESS,
   PREDICTION_MARKET_ABI,
@@ -11,7 +11,7 @@ import {
   MARKET_STATUS,
 } from "../lib/contracts";
 
-const MAX_BLOCK_RANGE = 9000;
+const MAX_BLOCK_RANGE = 9000; // Arc RPC caps eth_getLogs at 10,000 blocks
 
 function timeLeft(endTime) {
   const diffMs = endTime * 1000 - Date.now();
@@ -43,10 +43,12 @@ export default function MarketsGrid({ onBet, onCreateClick, refreshTick }) {
 
         const count = Number(await market.marketCount());
 
-        const [agentBetEvents, scoreEvents] = await Promise.all([
-          market.queryFilter(market.filters.BetPlaced(null, AGENT_ADDRESS), fromBlock, latestBlock),
-          aiOracle.queryFilter(aiOracle.filters.PredictionUpdated(), fromBlock, latestBlock),
-        ]);
+        const agentBetEvents = await withRetry(() =>
+          market.queryFilter(market.filters.BetPlaced(null, AGENT_ADDRESS), fromBlock, latestBlock)
+        );
+        const scoreEvents = await withRetry(() =>
+          aiOracle.queryFilter(aiOracle.filters.PredictionUpdated(), fromBlock, latestBlock)
+        );
 
         const agentStakeByMarket = {};
         for (const e of agentBetEvents) {
@@ -56,13 +58,14 @@ export default function MarketsGrid({ onBet, onCreateClick, refreshTick }) {
 
         const confidenceByMarket = {};
         for (const e of scoreEvents) {
+          // last event wins (most recent score) since events are in chronological order
           confidenceByMarket[e.args.marketId.toString()] = Number(e.args.confidence);
         }
 
         const results = [];
         for (let id = 0; id < count; id++) {
-          const [question, outcomes, endTime, status, totalPool] = await market.getMarket(id);
-          const yesPool = await market.getOutcomePool(id, 0);
+          const [question, outcomes, endTime, status, totalPool] = await withRetry(() => market.getMarket(id));
+          const yesPool = await withRetry(() => market.getOutcomePool(id, 0));
           const agentStakeWei = agentStakeByMarket[id.toString()] || 0n;
 
           results.push({

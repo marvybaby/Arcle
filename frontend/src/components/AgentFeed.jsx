@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Contract, formatUnits } from "ethers";
-import { getReadProvider } from "../lib/web3";
+import { getReadProvider, withRetry } from "../lib/web3";
 import {
   AI_ORACLE_ADDRESS,
   AI_ORACLE_ABI,
@@ -9,7 +9,7 @@ import {
   AGENT_ADDRESS,
 } from "../lib/contracts";
 
-const MAX_BLOCK_RANGE = 9000;
+const MAX_BLOCK_RANGE = 9000; // Arc RPC caps eth_getLogs at 10,000 blocks
 const dot = { stake: "bg-signal", settle: "bg-settle", score: "bg-muted" };
 
 function timeAgo(blockTimestamp) {
@@ -37,12 +37,16 @@ export default function AgentFeed({ refreshTick }) {
         const latestBlock = await provider.getBlockNumber();
         const fromBlock = Math.max(0, latestBlock - MAX_BLOCK_RANGE);
 
-        const [stakeEvents, settleEvents, scoreEvents, acc] = await Promise.all([
-          market.queryFilter(market.filters.BetPlaced(null, AGENT_ADDRESS), fromBlock, latestBlock),
-          market.queryFilter(market.filters.WinningsClaimed(null, AGENT_ADDRESS), fromBlock, latestBlock),
-          aiOracle.queryFilter(aiOracle.filters.PredictionUpdated(), fromBlock, latestBlock),
-          aiOracle.getAccuracyPercentage(),
-        ]);
+        const stakeEvents = await withRetry(() =>
+          market.queryFilter(market.filters.BetPlaced(null, AGENT_ADDRESS), fromBlock, latestBlock)
+        );
+        const settleEvents = await withRetry(() =>
+          market.queryFilter(market.filters.WinningsClaimed(null, AGENT_ADDRESS), fromBlock, latestBlock)
+        );
+        const scoreEvents = await withRetry(() =>
+          aiOracle.queryFilter(aiOracle.filters.PredictionUpdated(), fromBlock, latestBlock)
+        );
+        const acc = await withRetry(() => aiOracle.getAccuracyPercentage());
 
         const withTimestamps = async (events, type) =>
           Promise.all(
