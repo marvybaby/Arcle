@@ -1,0 +1,26 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  background: #0A0E14;
+  color: #E8EAF0;
+  font-family: 'Inter', sans-serif;
+}
+
+@keyframes tape {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+.animate-tape {
+  animation: tape 28s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-tape { animation: none; }
+}
+
+::selection {
+  background: #FFB74A;
+  color: #0A0E14;
+}
