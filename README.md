@@ -1,6 +1,6 @@
 # Arcle
 
-Autonomous AI agent that prices prediction markets and stakes/settles in USDC on Arc — built for Circle's **Build on Arc** hackathon, Agentic Economy track.
+Autonomous AI agent that prices prediction markets and stakes/settles in USDC on Arc.
 
 ## Overview
 
@@ -44,7 +44,3 @@ npx hardhat compile
 npx hardhat test
 npx hardhat run scripts/deploy.js --network arc
 ```
-
-## Hackathon
-
-Built for the **Build on Arc** hackathon (Agentic Economy track) — an autonomous agent that holds a wallet and transacts in USDC without a human in the loop.
