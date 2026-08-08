@@ -23,16 +23,38 @@ export default function AgentFeed({ refreshTick }) {
   const [feed, setFeed] = useState([]);
   const [accuracy, setAccuracy] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [unavailable, setUnavailable] = useState(false);
+
+  // Accuracy is a single eth_call, independent of logs -- load it separately
+  // so it isn't held hostage by a log-query rate limit.
+  useEffect(() => {
+    let cancelled = false;
+    async function loadAccuracy() {
+      try {
+        const provider = getReadProvider();
+        const aiOracle = new Contract(AI_ORACLE_ADDRESS, AI_ORACLE_ABI, provider);
+        const acc = await withRetry(() => aiOracle.getAccuracyPercentage());
+        if (!cancelled) setAccuracy(Number(acc));
+      } catch {
+        if (!cancelled) setAccuracy(null);
+      }
+    }
+    loadAccuracy();
+    return () => {
+      cancelled = true;
+    };
+  }, [refreshTick]);
 
   useEffect(() => {
     let cancelled = false;
 
     async function load() {
+      setLoading(true);
+      setUnavailable(false);
       try {
         const provider = getReadProvider();
         const aiOracle = new Contract(AI_ORACLE_ADDRESS, AI_ORACLE_ABI, provider);
         const market = new Contract(PREDICTION_MARKET_ADDRESS, PREDICTION_MARKET_ABI, provider);
-
         const latestBlock = await withRetry(() => provider.getBlockNumber());
 
         const stakeEvents = await queryFilterChunked(
@@ -44,12 +66,11 @@ export default function AgentFeed({ refreshTick }) {
         const scoreEvents = await queryFilterChunked(
           aiOracle, aiOracle.filters.PredictionUpdated(), latestBlock
         );
-        const acc = await withRetry(() => aiOracle.getAccuracyPercentage());
 
         const withTimestamps = async (events, type) =>
           Promise.all(
             events.map(async (e) => {
-              const block = await e.getBlock();
+              const block = await withRetry(() => e.getBlock());
               return { event: e, type, timestamp: block.timestamp };
             })
           );
@@ -93,11 +114,13 @@ export default function AgentFeed({ refreshTick }) {
 
         if (!cancelled) {
           setFeed(combined);
-          setAccuracy(Number(acc));
           setLoading(false);
         }
       } catch (e) {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) {
+          setLoading(false);
+          setUnavailable(true);
+        }
       }
     }
 
@@ -119,7 +142,12 @@ export default function AgentFeed({ refreshTick }) {
         {loading && (
           <div className="px-5 py-6 text-sm text-muted font-mono">loading on-chain activity...</div>
         )}
-        {!loading && feed.length === 0 && (
+        {!loading && unavailable && (
+          <div className="px-5 py-6 text-sm text-muted font-body">
+            Activity feed is temporarily unavailable. Markets and betting still work normally.
+          </div>
+        )}
+        {!loading && !unavailable && feed.length === 0 && (
           <div className="px-5 py-6 text-sm text-muted font-body">
             No agent activity in the recent block range yet.
           </div>

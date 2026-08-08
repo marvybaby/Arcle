@@ -41,7 +41,7 @@ export function getReadProvider() {
 // because Arc's RPC caps a single query's block range.
 export async function queryFilterChunked(contract, filter, latestBlock, {
   chunkSize = 9000,
-  maxChunks = 2, // dialed back for speed -- covers ~18,000 blocks of history
+  maxChunks = 1, // single window only -- minimize eth_getLogs calls as much as possible
   delayBetween = 150,
 } = {}) {
   let toBlock = latestBlock;
@@ -77,25 +77,40 @@ export function formatUSDC(weiValue) {
 // Retries a function on RPC rate-limit errors with exponential backoff.
 // Arc's public RPC can reject bursts of simultaneous requests (common on
 // first page load, when multiple components query on-chain data at once).
-// Global serial queue: ensures only one RPC call is ever in flight across
-// the whole app at once, regardless of how many components are fetching
-// data at the same time. This is what actually prevents bursts -- per-call
-// retry/backoff alone isn't enough when several components mount together.
-let rpcQueue = Promise.resolve();
-const MIN_GAP_MS = 150; // minimum spacing between any two RPC calls
+// Concurrency-limited pool: allows a few RPC calls in flight at once
+// (instead of strict one-at-a-time) so the app loads reasonably fast, while
+// still capping how many simultaneous requests hit Arc's RPC to avoid
+// triggering its rate limit. Tuned as a balance between speed and safety --
+// pure serial (limit 1) was reliable but too slow; fully parallel is fast
+// but re-triggers rate limiting.
+const POOL_SIZE = 4;
+let activeCount = 0;
+const waiters = [];
 
-function enqueue(fn) {
-  const run = rpcQueue.then(async () => {
-    const result = await fn();
-    await new Promise((r) => setTimeout(r, MIN_GAP_MS));
-    return result;
-  });
-  // keep the queue chain alive even if this call fails
-  rpcQueue = run.then(
-    () => undefined,
-    () => undefined
-  );
-  return run;
+function acquire() {
+  if (activeCount < POOL_SIZE) {
+    activeCount++;
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => waiters.push(resolve));
+}
+
+function release() {
+  activeCount--;
+  const next = waiters.shift();
+  if (next) {
+    activeCount++;
+    next();
+  }
+}
+
+async function enqueue(fn) {
+  await acquire();
+  try {
+    return await fn();
+  } finally {
+    release();
+  }
 }
 
 export async function withRetry(fn, { retries = 6, baseDelay = 900 } = {}) {
