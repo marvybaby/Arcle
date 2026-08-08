@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Contract, formatUnits } from "ethers";
 import MarketCard from "./MarketCard";
-import { getReadProvider, withRetry } from "../lib/web3";
+import { getReadProvider, queryFilterChunked, withRetry } from "../lib/web3";
 import {
   PREDICTION_MARKET_ADDRESS,
   PREDICTION_MARKET_ABI,
@@ -10,8 +10,6 @@ import {
   AGENT_ADDRESS,
   MARKET_STATUS,
 } from "../lib/contracts";
-
-const MAX_BLOCK_RANGE = 9000; // Arc RPC caps eth_getLogs at 10,000 blocks
 
 function timeLeft(endTime) {
   const diffMs = endTime * 1000 - Date.now();
@@ -38,16 +36,14 @@ export default function MarketsGrid({ onBet, onCreateClick, refreshTick }) {
         const market = new Contract(PREDICTION_MARKET_ADDRESS, PREDICTION_MARKET_ABI, provider);
         const aiOracle = new Contract(AI_ORACLE_ADDRESS, AI_ORACLE_ABI, provider);
 
-        const latestBlock = await provider.getBlockNumber();
-        const fromBlock = Math.max(0, latestBlock - MAX_BLOCK_RANGE);
+        const latestBlock = await withRetry(() => provider.getBlockNumber());
+        const count = Number(await withRetry(() => market.marketCount()));
 
-        const count = Number(await market.marketCount());
-
-        const agentBetEvents = await withRetry(() =>
-          market.queryFilter(market.filters.BetPlaced(null, AGENT_ADDRESS), fromBlock, latestBlock)
+        const agentBetEvents = await queryFilterChunked(
+          market, market.filters.BetPlaced(null, AGENT_ADDRESS), latestBlock
         );
-        const scoreEvents = await withRetry(() =>
-          aiOracle.queryFilter(aiOracle.filters.PredictionUpdated(), fromBlock, latestBlock)
+        const scoreEvents = await queryFilterChunked(
+          aiOracle, aiOracle.filters.PredictionUpdated(), latestBlock
         );
 
         const agentStakeByMarket = {};

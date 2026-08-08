@@ -1,9 +1,7 @@
 import { useEffect, useState } from "react";
 import { Contract, formatUnits } from "ethers";
-import { getReadProvider, getContracts } from "../lib/web3";
+import { getReadProvider, getContracts, queryFilterChunked, withRetry } from "../lib/web3";
 import { PREDICTION_MARKET_ADDRESS, PREDICTION_MARKET_ABI, MARKET_STATUS } from "../lib/contracts";
-
-const MAX_BLOCK_RANGE = 9000;
 
 export default function MyBets({ address, signer, refreshTick, onClaim }) {
   const [bets, setBets] = useState([]);
@@ -24,13 +22,10 @@ export default function MyBets({ address, signer, refreshTick, onClaim }) {
         const provider = getReadProvider();
         const market = new Contract(PREDICTION_MARKET_ADDRESS, PREDICTION_MARKET_ABI, provider);
 
-        const latestBlock = await provider.getBlockNumber();
-        const fromBlock = Math.max(0, latestBlock - MAX_BLOCK_RANGE);
+        const latestBlock = await withRetry(() => provider.getBlockNumber());
 
-        const myBetEvents = await market.queryFilter(
-          market.filters.BetPlaced(null, address),
-          fromBlock,
-          latestBlock
+        const myBetEvents = await queryFilterChunked(
+          market, market.filters.BetPlaced(null, address), latestBlock
         );
 
         const grouped = {};
@@ -42,7 +37,7 @@ export default function MyBets({ address, signer, refreshTick, onClaim }) {
 
         const results = await Promise.all(
           Object.values(grouped).map(async (b) => {
-            const [question, , , status] = await market.getMarket(b.marketId);
+            const [question, , , status] = await withRetry(() => market.getMarket(b.marketId));
             return {
               ...b,
               question,

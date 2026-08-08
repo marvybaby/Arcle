@@ -28,10 +28,33 @@ export async function connectWallet() {
 }
 
 export function getReadProvider() {
-  if (window.ethereum) {
-    return new BrowserProvider(window.ethereum);
-  }
+  // Reads always go straight to Arc's RPC, independent of any visitor's
+  // wallet or whichever network it happens to be connected to -- this is
+  // what makes the site work for visitors with no wallet, or a wallet on
+  // the wrong network. Only writes (placing bets, creating markets) use
+  // the wallet's signer, via getContracts() with a signer passed in.
   return new JsonRpcProvider(ARC_TESTNET.rpcUrls[0]);
+}
+
+// Fetches logs across a wider window than a single eth_getLogs call allows,
+// by querying backward in bounded chunks and merging the results. Needed
+// because Arc's RPC caps a single query's block range.
+export async function queryFilterChunked(contract, filter, latestBlock, {
+  chunkSize = 9000,
+  maxChunks = 2, // dialed back for speed -- covers ~18,000 blocks of history
+  delayBetween = 150,
+} = {}) {
+  let toBlock = latestBlock;
+  let all = [];
+  for (let i = 0; i < maxChunks; i++) {
+    const fromBlock = Math.max(0, toBlock - chunkSize);
+    const events = await withRetry(() => contract.queryFilter(filter, fromBlock, toBlock));
+    all = all.concat(events);
+    if (fromBlock === 0) break;
+    toBlock = fromBlock - 1;
+    if (delayBetween) await new Promise((r) => setTimeout(r, delayBetween));
+  }
+  return all;
 }
 
 export function getContracts(providerOrSigner) {
@@ -54,11 +77,32 @@ export function formatUSDC(weiValue) {
 // Retries a function on RPC rate-limit errors with exponential backoff.
 // Arc's public RPC can reject bursts of simultaneous requests (common on
 // first page load, when multiple components query on-chain data at once).
-export async function withRetry(fn, { retries = 4, baseDelay = 700 } = {}) {
+// Global serial queue: ensures only one RPC call is ever in flight across
+// the whole app at once, regardless of how many components are fetching
+// data at the same time. This is what actually prevents bursts -- per-call
+// retry/backoff alone isn't enough when several components mount together.
+let rpcQueue = Promise.resolve();
+const MIN_GAP_MS = 150; // minimum spacing between any two RPC calls
+
+function enqueue(fn) {
+  const run = rpcQueue.then(async () => {
+    const result = await fn();
+    await new Promise((r) => setTimeout(r, MIN_GAP_MS));
+    return result;
+  });
+  // keep the queue chain alive even if this call fails
+  rpcQueue = run.then(
+    () => undefined,
+    () => undefined
+  );
+  return run;
+}
+
+export async function withRetry(fn, { retries = 6, baseDelay = 900 } = {}) {
   let lastErr;
   for (let i = 0; i <= retries; i++) {
     try {
-      return await fn();
+      return await enqueue(fn);
     } catch (e) {
       lastErr = e;
       const code = e?.info?.error?.code ?? e?.error?.code;
